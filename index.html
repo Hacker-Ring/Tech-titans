@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-s'cale=1.0">
+    <title>ShelfScanner: Snap, Discover, Shop!</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Playfair+Display:wght@700&family=Open+Sans:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <div class="logo">
+                <span class="icon">📖</span> ShelfScanner
+            </div>
+            <p class="tagline">Your personal library assistant</p>
+        </header>
+
+        <main>
+            <section id="search-section" class="card" >
+                <h2>Hello! What would you like to do?</h2>
+                <div class="dialogue-options">
+                    <button id="snap-option" class="dialogue-button">📸 I want to scan a book.</button>
+                    <button id="recommender-option" class="dialogue-button">🤔 I need a new book idea.</button>
+                    <button id="search-option" class="dialogue-button">🔍 I know the book's title.</button>
+                </div>
+            </section>
+
+            <section id="scanner-form-section" class="card" style="display: none;">
+                <h2>Okay, let's scan it!</h2>
+                <p class="sub-heading">Please center the book cover in your camera.</p>
+                <div class="input-group">
+                    <input type="file" id="book-image" accept="image/*" capture="camera">
+                    <label for="book-image" class="custom-file-upload">
+                        📸 Open Camera
+                    </label>
+                </div>
+                <button id="scan-submit-button" class="primary-button">Find Book Details</button>
+                <button class="back-button" onclick="goBackToStart()">← Go Back</button>
+            </section>
+
+            <section id="manual-search-section" class="card" style="display: none;">
+                <h2>Great! What's the book called?</h2>
+                <p class="sub-heading">Enter the title or ISBN to find it.</p>
+                <input type="text" id="book-text-search" placeholder="Enter book title or ISBN..." class="text-input">
+                <button id="search-submit-button" class="primary-button">Search</button>
+                <button class="back-button" onclick="goBackToStart()">← Go Back</button>
+            </section>
+
+            <section id="recommender-section" class="card" style="display: none;">
+                <h2>Wonderful! What genre are you in the mood for?</h2>
+                <p class="sub-heading">We have a few popular genres for you to explore.</p>
+                <div id="recommender-genres-container" class="recommendations-genres">
+                    </div>
+                <button class="back-button" onclick="goBackToStart()">← Go Back</button>
+            </section>
+            
+            <section id="details-section" class="card" style="display: none;">
+                <div class="book-details">
+                    <img id="book-cover" src="https://via.placeholder.com/200x300?text=Book+Cover" alt="Book Cover" class="book-cover-img">
+                    <div class="book-info">
+                        <h2 id="book-title"></h2>
+                        <h3 id="book-author"></h3>
+                        <p class="meta-info"><strong>Genre:</strong> <span id="book-genre"></span></p>
+                        <p class="synopsis" id="book-synopsis"></p>
+                        <div class="rating">
+                            <strong>User Rating:</strong> <span id="book-stars" class="star-rating"></span> (<span id="review-count">0</span> reviews)
+                        </div>
+                    </div>
+                </div>
+
+                <h3 class="section-heading">Similar Reads You'll Love</h3>
+                <div id="recommendations-list" class="recommendations-carousel">
+                </div>
+
+                <h3 class="section-heading">Smart Price Comparison</h3>
+                <div id="price-comparison">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Store</th>
+                                <th>Price</th>
+                                <th>Shipping</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="price-table-body">
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="section-heading">What Readers Are Saying</h3>
+                <div class="user-reviews-section">
+                    <div id="reviews-placeholder" class="no-reviews">No reviews yet. Be the first to share your thoughts!</div>
+                    <div id="reviews-list"></div>
+                    <button id="write-review-toggle" class="secondary-button write-review-button">Write a Review</button>
+                    <form id="write-review-form" style="display: none; margin-top: 15px;">
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
+                            <input id="reviewer-name" class="text-input" style="max-width: 220px;" type="text" placeholder="Your name" required>
+                            <select id="reviewer-rating" class="text-input" style="max-width: 140px;">
+                                <option value="">Rating</option>
+                                <option value="5">5 - Excellent</option>
+                                <option value="4">4 - Good</option>
+                                <option value="3">3 - Average</option>
+                                <option value="2">2 - Poor</option>
+                                <option value="1">1 - Terrible</option>
+                            </select>
+                        </div>
+                        <textarea id="reviewer-comment" class="text-input" placeholder="Share your thoughts..." rows="3" style="width: 100%;"></textarea>
+                        <div style="margin-top: 10px; display: flex; gap: 10px;">
+                            <button id="submit-review" type="submit" class="primary-button">Submit Review</button>
+                            <button id="cancel-review" type="button" class="back-button">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+                <button class="back-button" onclick="goBackToStart()">← Back to Start</button>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        // --- Google Books API Key ---
+        const GOOGLE_BOOKS_API_KEY = "AIzaSyB10r64TZ227NnlsECfE739LFno5WohfWw";
+        // Mock data for a found book (used for scan flow fallback)
+        const mockBookData = {
+            title: "The Midnight Library",
+            author: "Matt Haig",
+            genre: "Fantasy, Contemporary Fiction",
+            synopsis: "Between life and death, Nora Seed discovers a library where she can try out different lives she might have lived. Each book in the Midnight Library offers a chance to undo a decision and create a new alternate reality.",
+            coverImage: "https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.amazon.in%2FMidnight-Library-Matt-Haig%2Fdp%2F1786892723&psig=AOvVaw3yCzbDlmzwwEMiTU0JzpAG&ust=1758817267672000&source=images&cd=vfe&opi=89978449&ved=0CBUQjRxqFwoTCLDhw4Xn8Y8DFQAAAAAdAAAAABAE",
+            reviews: 4.8,
+            reviewCount: 1250,
+            retailers: [
+                { name: "Amazon India", price: "₹499", shipping: "Free" },
+                { name: "Flipkart", price: "₹525", shipping: "₹50" },
+                { name: "Crossword", price: "₹599", shipping: "Free Pickup" },
+                { name: "Books-A-Million", price: "₹540", shipping: "₹75" }
+            ],
+            recommendations: [
+                { title: "Project Hail Mary", author: "Andy Weir", cover: "https://images-na.ssl-images-amazon.com/images/I/41bQp5mCjFL._SX322_BO1,204,203,200_.jpg" },
+                { title: "Where the Crawdads Sing", author: "Delia Owens", cover: "https://images-na.ssl-images-amazon.com/images/I/41-W6oX-m8L._SX322_BO1,204,203,200_.jpg" },
+                { title: "Circe", author: "Madeline Miller", cover: "https://images-na.ssl-images-amazon.com/images/I/51bA7Y5DwuL._SX331_BO1,204,203,200_.jpg" },
+                { title: "The Vanishing Half", author: "Brit Bennett", cover: "https://images-na.ssl-images-amazon.com/images/I/41zWz227xHL._SX322_BO1,204,203,200_.jpg" },
+                { title: "Educated", author: "Tara Westover", cover: "https://images-na.ssl-images-amazon.com/images/I/51m3K2sF7CL._SX322_BO1,204,203,200_.jpg" }
+            ],
+        };
+
+        // Predefined retailers (placeholder; Google Books API doesn't provide prices)
+        const mockRetailers = [
+            { name: "Amazon India", price: "₹499", shipping: "Free" },
+            { name: "Flipkart", price: "₹525", shipping: "₹50" },
+            { name: "Crossword", price: "₹599", shipping: "Free Pickup" },
+            { name: "Books-A-Million", price: "₹540", shipping: "₹75" }
+        ];
+
+        // --- Google Books: helpers ---
+        async function fetchBooksByQuery(query, maxResults = 10) {
+            const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&printType=books&maxResults=${maxResults}&key=${GOOGLE_BOOKS_API_KEY}`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Failed to fetch books');
+            const data = await response.json();
+            return Array.isArray(data.items) ? data.items : [];
+        }
+
+        function mapGoogleBookToData(item, recommendations) {
+            const info = item?.volumeInfo || {};
+            const image = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || 'https://via.placeholder.com/200x300?text=No+Cover';
+            const authors = Array.isArray(info.authors) ? info.authors.join(', ') : (info.authors || 'Unknown Author');
+            const categories = Array.isArray(info.categories) ? info.categories.join(', ') : (info.categories || 'General');
+            const description = info.description || 'No description available.';
+            const avg = typeof info.averageRating === 'number' ? info.averageRating : 0;
+            const count = typeof info.ratingsCount === 'number' ? info.ratingsCount : 0;
+
+            return {
+                title: info.title || 'Untitled',
+                author: authors,
+                genre: categories,
+                synopsis: description,
+                coverImage: image,
+                reviews: avg,
+                reviewCount: count,
+                retailers: mockRetailers,
+                recommendations: (recommendations || []).slice(0, 10).map(rec => {
+                    const rInfo = rec.volumeInfo || {};
+                    return {
+                        title: rInfo.title || 'Untitled',
+                        author: Array.isArray(rInfo.authors) ? rInfo.authors.join(', ') : (rInfo.authors || 'Unknown Author'),
+                        cover: rInfo.imageLinks?.thumbnail || rInfo.imageLinks?.smallThumbnail || 'https://via.placeholder.com/80x120?text=Book'
+                    };
+                })
+            };
+        }
+
+        
