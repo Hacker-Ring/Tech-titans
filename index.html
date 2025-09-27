@@ -2,9 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-s'cale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ShelfScanner: Snap, Discover, Shop!</title>
     <link rel="stylesheet" href="style.css">
+    <script>
+        // Load Tesseract.js on demand if needed
+        function ensureTesseractLoaded() {
+            return new Promise((resolve, reject) => {
+                if (window.Tesseract) { resolve(); return; }
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js';
+                script.async = true;
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error('Failed to load OCR library'));
+                document.head.appendChild(script);
+            });
+        }
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Playfair+Display:wght@700&family=Open+Sans:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&display=swap" rel="stylesheet">
 </head>
 <body>
@@ -14,7 +28,7 @@
             <div class="logo">
                 <span class="icon">📖</span> ShelfScanner
             </div>
-            <p style="background-color:aqua;" class="tagline">Your personal library assistant</p>
+            <p class="tagline">Your personal library assistant</p>
         </header>
 
         <main>
@@ -25,6 +39,11 @@
                     <button id="recommender-option" class="dialogue-button">🤔 I need a new book idea.</button>
                     <button id="search-option" class="dialogue-button">🔍 I know the book's title.</button>
                 </div>
+                <form id="book-search-form" style="margin-top:20px;">
+                    <input type="text" id="book-query" placeholder="Search for a book..." required>
+                    <button type="submit">Search</button>
+                </form>
+                <div id="book-results"></div>
             </section>
 
             <section id="scanner-form-section" class="card" style="display: none;">
@@ -35,6 +54,13 @@
                     <label for="book-image" class="custom-file-upload">
                         📸 Open Camera
                     </label>
+                </div>
+                <img id="scan-preview" src="" alt="Selected image preview" class="book-cover-img" style="display:none;max-width:240px;">
+                <div id="scan-status" style="display:none;margin-top:10px;padding:10px;border-radius:8px;background:#fff3cd;color:#8a6d3b;border:1px solid #ffeeba;max-width:420px;text-align:left;"></div>
+                <div id="scan-candidates" style="display:none;margin-top:10px;max-width:420px;text-align:left;"></div>
+                <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">
+                    <button id="save-image-button" class="secondary-button" type="button" style="display:none;">Save Image</button>
+                    <a id="download-image-link" href="#" download="scan.jpg" style="display:none;"></a>
                 </div>
                 <button id="scan-submit-button" class="primary-button">Find Book Details</button>
                 <button class="back-button" onclick="goBackToStart()">← Go Back</button>
@@ -122,6 +148,8 @@
     <script>
         // --- Google Books API Key ---
         const GOOGLE_BOOKS_API_KEY = "AIzaSyB10r64TZ227NnlsECfE739LFno5WohfWw";
+        // --- Google Cloud Vision API Key (for scanning book covers/pages) ---
+        const GOOGLE_CLOUD_VISION_API_KEY = "AIzaSyCGC34ZDQC5Q5EyfuN2dTEo2m_TZKefJCU";
         // Mock data for a found book (used for scan flow fallback)
         const mockBookData = {
             title: "The Midnight Library",
@@ -155,9 +183,15 @@
         ];
 
         // --- Google Books: helpers ---
-        async function fetchBooksByQuery(query, maxResults = 10) {
-            const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&printType=books&maxResults=${maxResults}&key=${GOOGLE_BOOKS_API_KEY}`;
-            const response = await fetch(url);
+        async function fetchBooksByQuery(query, maxResults = 10, startIndex = 0) {
+            // Prefer backend proxy if available
+            let url = `/api/books/search?q=${encodeURIComponent(query)}&printType=books&maxResults=${maxResults}&startIndex=${startIndex}`;
+            let response = await fetch(url).catch(() => null);
+            if (!response || !response.ok) {
+                // Fallback to direct API (may require CORS/key in client)
+                url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&printType=books&maxResults=${maxResults}&startIndex=${startIndex}&key=${GOOGLE_BOOKS_API_KEY}`;
+                response = await fetch(url);
+            }
             if (!response.ok) throw new Error('Failed to fetch books');
             const data = await response.json();
             return Array.isArray(data.items) ? data.items : [];
@@ -192,4 +226,844 @@
             };
         }
 
+        // --- Reviews: storage and helpers ---
+        function getBookKey(title, author) {
+            return `reviews::${(title || '').toLowerCase()}::${(author || '').toLowerCase()}`;
+        }
+
+        function loadReviews(title, author) {
+            try {
+                const key = getBookKey(title, author);
+                const json = localStorage.getItem(key);
+                return json ? JSON.parse(json) : [];
+            } catch (e) {
+                console.error('Failed to load reviews', e);
+                return [];
+            }
+        }
+
+        function saveReview(title, author, review) {
+            const key = getBookKey(title, author);
+            const current = loadReviews(title, author);
+            current.unshift({
+                id: Date.now(),
+                name: review.name,
+                rating: review.rating,
+                comment: review.comment,
+                createdAt: new Date().toISOString()
+            });
+            try {
+                localStorage.setItem(key, JSON.stringify(current));
+                return current;
+            } catch (e) {
+                console.error('Failed to save review', e);
+                return current;
+            }
+        }
+
+        function computeAggregate(reviews, apiAverage, apiCount) {
+            if (!reviews.length) {
+                return { average: apiAverage || 0, count: apiCount || 0 };
+            }
+            const sum = reviews.reduce((acc, r) => acc + (Number(r.rating) || 0), 0);
+            const average = sum / reviews.length;
+            return { average, count: reviews.length + (apiCount || 0) };
+        }
+
+        // Function to show a specific section and hide the others
+        function showSection(sectionId) {
+            document.getElementById('search-section').style.display = 'none';
+            document.getElementById('scanner-form-section').style.display = 'none';
+            document.getElementById('manual-search-section').style.display = 'none';
+            document.getElementById('recommender-section').style.display = 'none';
+            document.getElementById('details-section').style.display = 'none';
+            document.getElementById(sectionId).style.display = 'flex'; // Use flex for these sections
+        }
+
+        // --- Event Listeners for Dialogue Buttons ---
+        document.getElementById('snap-option').addEventListener('click', () => {
+            showSection('scanner-form-section');
+        });
         
+        document.getElementById('recommender-option').addEventListener('click', () => {
+            showSection('recommender-section');
+            populateGenreCards();
+        });
+
+        document.getElementById('search-option').addEventListener('click', () => {
+            showSection('manual-search-section');
+        });
+
+        // --- Event Listeners for Submit Buttons ---
+        // Image input: preview + persist
+        document.getElementById('book-image').addEventListener('change', async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const dataUrl = await fileToDataUrl(file);
+            const img = document.getElementById('scan-preview');
+            img.src = dataUrl;
+            img.style.display = '';
+            localStorage.setItem('last-scan-image', dataUrl);
+            const saver = document.getElementById('save-image-button');
+            const dl = document.getElementById('download-image-link');
+            saver.style.display = '';
+            dl.style.display = '';
+            dl.href = dataUrl;
+
+            // Auto-start scan after image is selected
+            const button = document.getElementById('scan-submit-button');
+            const originalText = button.textContent;
+            try {
+                button.textContent = 'Scanning...';
+                button.disabled = true;
+                showScanMessage('Scanning the image for text…', false);
+                await handleScanFromDataUrl(dataUrl, button);
+            } catch (err) {
+                console.error(err);
+                showScanMessage('There was an error scanning the image. Please try again.', true);
+                alert('There was an error scanning the image. Please try again.');
+            } finally {
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        });
+
+        // Save image button: trigger download link
+        document.getElementById('save-image-button').addEventListener('click', () => {
+            const dl = document.getElementById('download-image-link');
+            if (dl && dl.href && dl.href !== '#') {
+                dl.click();
+            }
+        });
+        document.getElementById('scan-submit-button').addEventListener('click', async () => {
+            const button = document.getElementById('scan-submit-button');
+            const fileInput = document.getElementById('book-image');
+            if (!fileInput.files || !fileInput.files[0]) {
+                // fallback to last saved image if available
+                const saved = localStorage.getItem('last-scan-image');
+                if (!saved) {
+                    showScanMessage('Please select or capture an image of the book first.', true);
+                    alert('Please select or capture an image of the book first.');
+                    return;
+                }
+                await handleScanFromDataUrl(saved, button);
+                return;
+            }
+            button.textContent = 'Scanning...';
+            button.disabled = true;
+            try {
+                const dataUrl = await fileToDataUrl(fileInput.files[0]);
+                localStorage.setItem('last-scan-image', dataUrl);
+                const img = document.getElementById('scan-preview');
+                img.src = dataUrl;
+                img.style.display = '';
+                showScanMessage('Scanning the image for text…', false);
+                await handleScanFromDataUrl(dataUrl, button);
+            } catch (e) {
+                console.error(e);
+                showScanMessage('There was an error scanning the image. Please try again.', true);
+                alert('There was an error scanning the image. Please try again.');
+            } finally {
+                button.textContent = 'Find Book Details';
+                button.disabled = false;
+            }
+        });
+
+        document.getElementById('search-submit-button').addEventListener('click', async () => {
+            const button = document.getElementById('search-submit-button');
+            const input = document.getElementById('book-text-search');
+            const query = input.value.trim();
+            if (!query) return;
+            button.textContent = 'Searching...';
+            button.disabled = true;
+            try {
+                const items = await fetchBooksByQuery(query, 12);
+                if (items.length === 0) {
+                    alert('No results found. Try another search.');
+                } else {
+                    const [first, ...rest] = items;
+                    const data = mapGoogleBookToData(first, rest);
+                    showBookDetails(data);
+                }
+            } catch (e) {
+                alert('There was an error fetching results.');
+                console.error(e);
+            } finally {
+                button.textContent = 'Search';
+                button.disabled = false;
+            }
+        });
+
+        // Allow pressing Enter to trigger manual search
+        document.getElementById('book-text-search').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                document.getElementById('search-submit-button').click();
+            }
+        });
+
+        // --- Functions to Populate and Display Content ---
+        function showBookDetails(data) {
+            showSection('details-section');
+            document.getElementById('book-cover').src = data.coverImage;
+            document.getElementById('book-title').textContent = data.title;
+            document.getElementById('book-author').textContent = 'By ' + data.author;
+            document.getElementById('book-genre').textContent = data.genre;
+            document.getElementById('book-synopsis').textContent = data.synopsis;
+
+            // Reviews: load and render
+            const existingReviews = loadReviews(data.title, data.author);
+            renderReviews(existingReviews);
+            const aggregate = computeAggregate(existingReviews, data.reviews, data.reviewCount);
+            renderAggregate(aggregate.average, aggregate.count);
+
+            const recList = document.getElementById('recommendations-list');
+            recList.innerHTML = '';
+            data.recommendations.forEach(rec => {
+                const card = document.createElement('div');
+                card.className = 'recommendation-card';
+                card.innerHTML = `
+                    <img src="${rec.cover || 'https://via.placeholder.com/80x120?text=Book'}" alt="${rec.title}" class="rec-cover">
+                    <h4>${rec.title}</h4>
+                    <p>by ${rec.author}</p>
+                `;
+                recList.appendChild(card);
+            });
+
+            const priceTableBody = document.getElementById('price-table-body');
+            priceTableBody.innerHTML = '';
+            data.retailers.forEach(retailer => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${retailer.name}</td>
+                    <td>${retailer.price}</td>
+                    <td>${retailer.shipping}</td>
+                    <td><a href="#" class="shop-link">Shop Now</a></td>
+                `;
+                priceTableBody.appendChild(row);
+            });
+
+            // Wire review form controls to current book
+            setupReviewForm(data);
+        }
+
+        // --- Cloud Vision helpers ---
+        async function visionExtractText(base64Content) {
+            const body = {
+                requests: [
+                    {
+                        image: { content: base64Content },
+                        features: [ { type: 'TEXT_DETECTION', maxResults: 5 } ]
+                    }
+                ]
+            };
+            // Prefer backend proxy to keep API key server-side
+            let res = await fetch('/api/vision/ocr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ imageBase64: base64Content })
+            }).catch(() => null);
+            if (!res || !res.ok) {
+                const url = `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`;
+                res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+            }
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || data.error) {
+                const message = data?.error?.message || `Vision API request failed (${res.status})`;
+                throw new Error(message);
+            }
+            const text = data?.responses?.[0]?.fullTextAnnotation?.text || data?.responses?.[0]?.textAnnotations?.[0]?.description || '';
+            return text || '';
+        }
+
+        // --- Fallback OCR using Tesseract.js (no API key required) ---
+        async function tesseractExtractTextFromDataUrl(dataUrl) {
+            await ensureTesseractLoaded();
+            try {
+                const processed = await preprocessForOcr(dataUrl);
+                const { data } = await window.Tesseract.recognize(processed, 'eng', {
+                    logger: () => {},
+                    preserve_interword_spaces: '1',
+                    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-: #xX',
+                    tessedit_pageseg_mode: '6' // Assume a block of text
+                });
+                return (data && data.text) ? data.text : '';
+            } catch (e) {
+                console.error('Tesseract OCR failed', e);
+                return '';
+            }
+        }
+
+        function extractIsbn(text) {
+            if (!text) return '';
+            // Normalize and correct common OCR confusions
+            let normalized = text.replace(/[\s\u00A0]+/g, ' ');
+            normalized = normalized.replace(/I\s*S\s*B\s*N/ig, 'ISBN');
+            normalized = normalized.replace(/[^0-9A-Za-z\-: ]/g, '');
+            normalized = normalized.replace(/[Oo]/g, '0').replace(/[lI]/g, '1');
+            normalized = normalized.toUpperCase();
+            // Try explicit ISBN markers first
+            const isbn13Match = normalized.match(/ISBN(?:-13)?:?\s*([0-9]{3}[- ]?[0-9]{1,5}[- ]?[0-9]{1,7}[- ]?[0-9]{1,7}[- ]?[0-9])/);
+            const isbn10Match = normalized.match(/ISBN(?:-10)?:?\s*([0-9]{1,5}[- ]?[0-9]{1,7}[- ]?[0-9]{1,7}[- ]?[0-9X])/);
+            let found = '';
+            if (isbn13Match && isbn13Match[1]) found = isbn13Match[1];
+            else if (isbn10Match && isbn10Match[1]) found = isbn10Match[1];
+            found = found.replace(/[- ]/g, '');
+            // Fallback: any 13-digit sequence starting with 978/979
+            if (!found) {
+                const any13 = normalized.match(/\b(97[89][0-9]{10})\b/);
+                if (any13) found = any13[1];
+            }
+            // Final sanity
+            if (/^(97[89]\d{10})$/.test(found) || /^(\d{9}[\dX])$/.test(found)) return found;
+            return '';
+        }
+
+        function guessTitleFromText(text) {
+            if (!text) return '';
+            const lines = text.split(/\r?\n/)
+                .map(l => l.trim())
+                .filter(l => l.length >= 3 && !/^ISBN/i.test(l));
+            // Prefer lines with many letters and few digits, reasonably long
+            lines.sort((a, b) => scoreLine(b) - scoreLine(a));
+            return lines[0] || '';
+        }
+
+        function scoreLine(line) {
+            const letters = (line.match(/[A-Z]/ig) || []).length;
+            const digits = (line.match(/[0-9]/g) || []).length;
+            const punctuation = (line.match(/[^\w\s]/g) || []).length;
+            return letters * 3 - digits * 2 - punctuation + Math.min(line.length, 40);
+        }
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const result = reader.result || '';
+                    const base64 = String(result).split(',')[1] || '';
+                    resolve(base64);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function fileToDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ''));
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function downscaleDataUrl(dataUrl, maxSize = 1200, quality = 0.9) {
+            return new Promise((resolve) => {
+                try {
+                    const img = new Image();
+                    img.onload = () => {
+                        let { width, height } = img;
+                        if (width <= maxSize && height <= maxSize) {
+                            resolve(dataUrl);
+                            return;
+                        }
+                        const scale = Math.min(maxSize / width, maxSize / height);
+                        const w = Math.round(width * scale);
+                        const h = Math.round(height * scale);
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w;
+                        canvas.height = h;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, w, h);
+                        const out = canvas.toDataURL('image/jpeg', quality);
+                        resolve(out);
+                    };
+                    img.onerror = () => resolve(dataUrl);
+                    img.src = dataUrl;
+                } catch (_) {
+                    resolve(dataUrl);
+                }
+            });
+        }
+
+        async function handleScanFromDataUrl(dataUrl, buttonEl) {
+            const optimized = await downscaleDataUrl(dataUrl, 1200, 0.9);
+            const base64 = (optimized.split(',')[1] || '').trim();
+            let ocrText = '';
+            try {
+                ocrText = await visionExtractText(base64);
+            } catch (e) {
+                console.warn('Vision OCR failed, falling back to Tesseract:', e?.message || e);
+                ocrText = await tesseractExtractTextFromDataUrl(optimized);
+            }
+            if (!ocrText || !ocrText.trim()) {
+                showScanMessage('We could not read any text from the image. Try again with better lighting and make sure the title or ISBN is visible.', true);
+            }
+            const isbn = extractIsbn(ocrText);
+            let items = [];
+            if (isbn) {
+                items = await fetchBooksByQuery(`isbn:${isbn}`, 12);
+            }
+            if (!items.length) {
+                const titleGuess = guessTitleFromText(ocrText);
+                if (titleGuess) {
+                    // Try focused queries for better precision
+                    items = await fetchBooksByQuery(`intitle:${titleGuess}`, 12);
+                }
+            }
+            if (!items.length && ocrText) {
+                // Broader fallback: keep only alphabetic words of length >=3
+                const words = ocrText
+                    .replace(/[^A-Za-z\s]/g, ' ')
+                    .split(/\s+/)
+                    .filter(w => w.length >= 3)
+                    .slice(0, 8);
+                if (words.length) {
+                    const q = words.join(' ');
+                    items = await fetchBooksByQuery(q, 10);
+                }
+            }
+            if (!items.length) {
+                showScanMessage('Could not identify the book from the image. Try a clearer cover or ensure the title/ISBN is visible.', true);
+                alert('Could not identify the book from the image. Try a clearer cover or include the title/ISBN in view.');
+            } else {
+                // If we searched by ISBN, trust the first result; otherwise present choices
+                const searchedByIsbn = Boolean(isbn);
+                if (searchedByIsbn) {
+                    const [first, ...rest] = items;
+                    const data = mapGoogleBookToData(first, rest);
+                    showBookDetails(data);
+                    showScanMessage('', false);
+                } else {
+                    renderScanCandidates(items);
+                    showScanMessage('Multiple possible matches found. Please pick the correct book.', false);
+                }
+            }
+        }
+
+        // --- Scan status helper ---
+        function showScanMessage(message, isError) {
+            const el = document.getElementById('scan-status');
+            if (!message) { el.style.display = 'none'; el.textContent = ''; return; }
+            el.textContent = message;
+            el.style.display = '';
+            // Color depending on error or info
+            if (isError) {
+                el.style.background = '#f8d7da';
+                el.style.color = '#721c24';
+                el.style.borderColor = '#f5c6cb';
+            } else {
+                el.style.background = '#d1ecf1';
+                el.style.color = '#0c5460';
+                el.style.borderColor = '#bee5eb';
+            }
+        }
+
+        // --- Render candidate picks when scan is ambiguous ---
+        function renderScanCandidates(items) {
+            const container = document.getElementById('scan-candidates');
+            container.innerHTML = '';
+            const list = document.createElement('div');
+            list.style.display = 'grid';
+            list.style.gridTemplateColumns = 'repeat(auto-fill, minmax(160px, 1fr))';
+            list.style.gap = '10px';
+            items.slice(0, 8).forEach((item, idx) => {
+                const info = item?.volumeInfo || {};
+                const cover = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || 'https://via.placeholder.com/100x150?text=Book';
+                const title = info.title || 'Untitled';
+                const author = Array.isArray(info.authors) ? info.authors.join(', ') : (info.authors || 'Unknown Author');
+                const card = document.createElement('div');
+                card.style.border = '1px solid #e0e0e0';
+                card.style.borderRadius = '8px';
+                card.style.padding = '10px';
+                card.style.background = '#fff';
+                card.style.cursor = 'pointer';
+                card.innerHTML = `
+                    <div style="display:flex;gap:10px;align-items:flex-start;">
+                        <img src="${cover}" alt="${title}" style="width:60px;height:90px;object-fit:cover;border-radius:4px;">
+                        <div>
+                            <div style="font-weight:600;">${title}</div>
+                            <div style="font-size:0.9em;color:#555;">${author}</div>
+                        </div>
+                    </div>
+                `;
+                card.addEventListener('click', () => {
+                    const others = items.filter((_, j) => j !== idx);
+                    const data = mapGoogleBookToData(item, others);
+                    showBookDetails(data);
+                    showScanMessage('', false);
+                    container.style.display = 'none';
+                });
+                list.appendChild(card);
+            });
+            container.appendChild(list);
+            container.style.display = '';
+        }
+
+        // --- Image preprocessing to improve OCR accuracy ---
+        async function preprocessForOcr(dataUrl) {
+            return new Promise((resolve) => {
+                try {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = () => {
+                        const scale = Math.max(1, Math.min(2, 1200 / Math.max(img.width, img.height)));
+                        const w = Math.round(img.width * scale);
+                        const h = Math.round(img.height * scale);
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w;
+                        canvas.height = h;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, w, h);
+                        const imageData = ctx.getImageData(0, 0, w, h);
+                        const data = imageData.data;
+                        // Grayscale + contrast + simple threshold
+                        const contrast = 1.2; // 20% more contrast
+                        const threshold = 180;
+                        for (let i = 0; i < data.length; i += 4) {
+                            const r = data[i], g = data[i+1], b = data[i+2];
+                            let y = 0.299*r + 0.587*g + 0.114*b; // luminance
+                            // increase contrast
+                            y = (y - 128) * contrast + 128;
+                            // threshold to strengthen text
+                            const v = y > threshold ? 255 : 0;
+                            data[i] = data[i+1] = data[i+2] = v;
+                        }
+                        ctx.putImageData(imageData, 0, 0);
+                        resolve(canvas.toDataURL('image/png'));
+                    };
+                    img.onerror = () => resolve(dataUrl);
+                    img.src = dataUrl;
+                } catch (_) {
+                    resolve(dataUrl);
+                }
+            });
+        }
+
+        function renderAggregate(average, count) {
+            const stars = '⭐'.repeat(Math.floor(average));
+            const halfStar = average % 1 >= 0.5 ? '½' : '';
+            document.getElementById('book-stars').textContent = stars + halfStar;
+            document.getElementById('review-count').textContent = (count || 0).toLocaleString();
+        }
+
+        function renderReviews(reviews) {
+            const list = document.getElementById('reviews-list');
+            const placeholder = document.getElementById('reviews-placeholder');
+            list.innerHTML = '';
+            if (!reviews.length) {
+                placeholder.style.display = '';
+                return;
+            }
+            placeholder.style.display = 'none';
+            reviews.forEach(r => {
+                const item = document.createElement('div');
+                item.className = 'review-item';
+                const created = new Date(r.createdAt).toLocaleDateString();
+                const stars = '⭐'.repeat(Number(r.rating) || 0);
+                item.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <strong>${escapeHtml(r.name || 'Anonymous')}</strong>
+                        <span>${stars}</span>
+                        <span style="color:#777;font-size:0.9em;">${created}</span>
+                    </div>
+                    <div style="margin-top:6px;white-space:pre-wrap;">${escapeHtml(r.comment || '')}</div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function setupReviewForm(currentBook) {
+            const toggleBtn = document.getElementById('write-review-toggle');
+            const form = document.getElementById('write-review-form');
+            const cancelBtn = document.getElementById('cancel-review');
+            const nameInput = document.getElementById('reviewer-name');
+            const ratingSelect = document.getElementById('reviewer-rating');
+            const commentInput = document.getElementById('reviewer-comment');
+
+            // Reset form
+            form.style.display = 'none';
+            nameInput.value = '';
+            ratingSelect.value = '';
+            commentInput.value = '';
+
+            toggleBtn.onclick = () => {
+                form.style.display = form.style.display === 'none' ? '' : 'none';
+            };
+            cancelBtn.onclick = () => {
+                form.style.display = 'none';
+                nameInput.value = '';
+                ratingSelect.value = '';
+                commentInput.value = '';
+            };
+
+            form.onsubmit = (e) => {
+                e.preventDefault();
+                const name = nameInput.value.trim() || 'Anonymous';
+                const rating = Number(ratingSelect.value);
+                const comment = commentInput.value.trim();
+                if (!rating || rating < 1 || rating > 5) {
+                    alert('Please select a rating from 1 to 5.');
+                    return;
+                }
+                const updated = saveReview(currentBook.title, currentBook.author, { name, rating, comment });
+                renderReviews(updated);
+                const aggregate = computeAggregate(updated, 0, 0);
+                renderAggregate(aggregate.average, aggregate.count);
+                form.style.display = 'none';
+                nameInput.value = '';
+                ratingSelect.value = '';
+                commentInput.value = '';
+            };
+        }
+
+        const genreState = {};
+        async function ensureMoreForGenre(genre) {
+            const state = genreState[genre];
+            if (!state) return [];
+            if (state.items.length - state.shown >= 5) return state.items; // already enough cached
+            try {
+                const more = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent('subject:' + genre)}&printType=books&startIndex=${state.startIndex}&maxResults=10&key=${GOOGLE_BOOKS_API_KEY}`).then(r => r.json());
+                const newItems = Array.isArray(more.items) ? more.items : [];
+                state.items = state.items.concat(newItems);
+                state.startIndex += newItems.length;
+                return state.items;
+            } catch (e) {
+                console.error('Failed to load more for', genre, e);
+                return state.items;
+            }
+        }
+
+        function renderNextBatchForGenre(genre, section) {
+            const state = genreState[genre];
+            const row = section.querySelector('.recommendations-carousel');
+            const end = Math.min(state.shown + 5, state.items.length);
+            for (let idx = state.shown; idx < end; idx++) {
+                const item = state.items[idx];
+                const info = item?.volumeInfo || {};
+                const cover = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || 'https://via.placeholder.com/80x120?text=Book';
+                const title = info.title || 'Untitled';
+                const author = Array.isArray(info.authors) ? info.authors.join(', ') : (info.authors || 'Unknown Author');
+                const card = document.createElement('div');
+                card.className = 'recommendation-card';
+                card.innerHTML = `
+                    <img src="${cover}" alt="${title}" class="rec-cover">
+                    <h4>${title}</h4>
+                    <p>by ${author}</p>
+                `;
+                card.addEventListener('click', () => {
+                    const data = mapGoogleBookToData(item, state.items.filter(i => i !== item));
+                    data.genre = data.genre || genre;
+                    showBookDetails(data);
+                });
+                row.appendChild(card);
+            }
+            state.shown = end;
+            const moreBtn = section.querySelector('.genre-more-btn');
+            if (moreBtn) {
+                moreBtn.style.display = state.shown < state.items.length ? '' : '';
+            }
+        }
+
+        function populateGenreCards() {
+            const genresContainer = document.getElementById('recommender-genres-container');
+            genresContainer.innerHTML = '';
+            const genres = ['Fantasy', 'Science Fiction', 'Mystery', 'Horror'];
+
+            genres.forEach(async (genre) => {
+                const section = document.createElement('div');
+                section.className = 'genre-section';
+                section.innerHTML = `
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                        <h4 class="genre-title" style="margin:0;">${genre}</h4>
+                        <button class="secondary-button genre-more-btn">Show more</button>
+                    </div>
+                    <div class="recommendations-carousel" id="genre-row-${genre.replace(/\s+/g,'-').toLowerCase()}"></div>
+                `;
+                genresContainer.appendChild(section);
+
+                genreState[genre] = { items: [], shown: 0, startIndex: 0 };
+
+                try {
+                    const items = await fetchBooksByQuery(`subject:${genre}`, 10);
+                    genreState[genre].items = items;
+                    genreState[genre].startIndex = items.length;
+                    if (!items.length) {
+                        section.querySelector('.recommendations-carousel').innerHTML = '<div class="no-reviews">No books found.</div>';
+                    } else {
+                        renderNextBatchForGenre(genre, section);
+                    }
+                } catch (e) {
+                    console.error('Error fetching genre', genre, e);
+                }
+
+                const moreBtn = section.querySelector('.genre-more-btn');
+                moreBtn.addEventListener('click', async () => {
+                    // Navigate to internal page showing more for this genre
+                    const target = `genre.html?genre=${encodeURIComponent(genre)}`;
+                    window.location.href = target;
+                });
+            });
+        }
+        
+        // --- Go Back Function ---
+        function goBackToStart() {
+            showSection('search-section');
+        }
+
+        // --- Deep link handler: support #title=... or #isbn=... to open details directly ---
+        function getHashParams() {
+            const hash = window.location.hash.startsWith('#') ? window.location.hash.substring(1) : window.location.hash;
+            const params = {};
+            hash.split('&').forEach(pair => {
+                const [k, v] = pair.split('=');
+                if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+            });
+            return params;
+        }
+
+        async function handleDeepLink() {
+            const params = getHashParams();
+            const title = (params.title || '').trim();
+            const isbn = (params.isbn || '').trim();
+            if (!title && !isbn) return;
+            try {
+                const query = isbn ? `isbn:${isbn}` : title;
+                const items = await fetchBooksByQuery(query, 12);
+                if (!items.length) return;
+                const [first, ...rest] = items;
+                const data = mapGoogleBookToData(first, rest);
+                showBookDetails(data);
+            } catch (e) {
+                console.error('Deep link fetch failed', e);
+            }
+        }
+
+        // Run deep-linking after initial render
+        handleDeepLink();
+    </script>
+    <script type="module">
+        import { searchBooks } from './bookApi.js';
+        document.addEventListener('DOMContentLoaded', () => {
+            const form = document.getElementById('book-search-form');
+            const resultsDiv = document.getElementById('book-results');
+            const imageInput = document.getElementById('book-image');
+            const scanButton = document.getElementById('scan-submit-button');
+            const scanStatus = document.getElementById('scan-status');
+            const scanCandidates = document.getElementById('scan-candidates');
+
+            // Text search
+            if (form) {
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const query = document.getElementById('book-query').value;
+                    resultsDiv.innerHTML = '<p>Searching...</p>';
+                    try {
+                        const books = await searchBooks(query);
+                        if (books.length === 0) {
+                            resultsDiv.innerHTML = '<p>No results found.</p>';
+                        } else {
+                            resultsDiv.innerHTML = books.map(book => `
+                                <div class="book-result" style="display:flex;align-items:center;margin-bottom:12px;">
+                                    <img src="${book.image}" alt="${book.title} cover" style="width:64px;height:96px;object-fit:cover;margin-right:12px;border-radius:4px;box-shadow:0 2px 6px #ccc;">
+                                    <div>
+                                        <strong>${book.title}</strong><br>
+                                        <em>${book.author}</em><br>
+                                        <span>Source: ${book.source}</span>
+                                    </div>
+                                </div>
+                            `).join('');
+                        }
+                    } catch (err) {
+                        resultsDiv.innerHTML = `<p>Error: ${err.message}</p>`;
+                    }
+                });
+            }
+
+            // Image scan for multiple books
+            if (scanButton && imageInput) {
+                scanButton.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    const file = imageInput.files && imageInput.files[0];
+                    if (!file) {
+                        scanStatus.style.display = '';
+                        scanStatus.textContent = 'Please select an image.';
+                        return;
+                    }
+                    scanStatus.style.display = '';
+                    scanStatus.textContent = 'Scanning image for book titles...';
+                    scanCandidates.style.display = 'none';
+                    // Convert image to base64
+                    const reader = new FileReader();
+                    reader.onload = async function(evt) {
+                        const imageBase64 = evt.target.result.split(',')[1];
+                        try {
+                            const res = await fetch('/api/vision/ocr', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ imageBase64 })
+                            });
+                            const data = await res.json();
+                            const text = data.responses?.[0]?.fullTextAnnotation?.text || '';
+                            if (!text) {
+                                scanStatus.textContent = 'No text detected.';
+                                return;
+                            }
+                            // Simple line-based extraction for possible book titles
+                            const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+                            // Heuristic: lines in Title Case, not all caps, not all lowercase
+                            const candidates = lines.filter(l => /^[A-Z][a-zA-Z0-9\s:,'"-]+$/.test(l));
+                            if (candidates.length === 0) {
+                                scanStatus.textContent = 'No book titles detected.';
+                                return;
+                            }
+                            scanStatus.textContent = 'Detected possible book titles:';
+                            scanCandidates.style.display = '';
+                            scanCandidates.innerHTML = candidates.map(title => `<div>${title}</div>`).join('');
+                            // Search for each candidate
+                            resultsDiv.innerHTML = '<p>Searching detected books...</p>';
+                            let allResults = [];
+                            for (const title of candidates) {
+                                const books = await searchBooks(title);
+                                allResults = allResults.concat(books.map(book => ({ ...book, detectedTitle: title })));
+                            }
+                            if (allResults.length === 0) {
+                                resultsDiv.innerHTML = '<p>No books found for detected titles.</p>';
+                            } else {
+                                resultsDiv.innerHTML = allResults.map(book => `
+                                    <div class="book-result" style="display:flex;align-items:center;margin-bottom:12px;">
+                                        <img src="${book.image}" alt="${book.title} cover" style="width:64px;height:96px;object-fit:cover;margin-right:12px;border-radius:4px;box-shadow:0 2px 6px #ccc;">
+                                        <div>
+                                            <strong>${book.title}</strong><br>
+                                            <em>${book.author}</em><br>
+                                            <span>Source: ${book.source}</span><br>
+                                            <span style="color:#888;font-size:12px;">Detected: ${book.detectedTitle}</span>
+                                        </div>
+                                    </div>
+                                `).join('');
+                            }
+                        } catch (err) {
+                            scanStatus.textContent = 'Error scanning image.';
+                        }
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+        });
+    </script>
+</body>
+</html>

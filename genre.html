@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>More Books</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Playfair+Display:wght@700&family=Open+Sans:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo"><span class="icon">📖</span> ShelfScanner</div>
+            <p class="tagline">Explore more in <span id="genre-name"></span></p>
+        </header>
+
+        <main>
+            <section class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <h2 id="page-title" style="margin:0;">Loading…</h2>
+                    <div>
+                        <button class="back-button" onclick="goHome()">← Back</button>
+                    </div>
+                </div>
+                <div id="genre-results" class="recommendations-carousel" style="flex-wrap:wrap;gap:20px;overflow-x:visible;"></div>
+                <div style="display:flex;justify-content:center;margin-top:15px;gap:10px;">
+                    <button id="load-more" class="primary-button">Load more</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const GOOGLE_BOOKS_API_KEY = "AIzaSyB10r64TZ227NnlsECfE739LFno5WohfWw";
+        const params = new URLSearchParams(window.location.search);
+        const genre = params.get('genre') || 'Books';
+        document.getElementById('genre-name').textContent = genre;
+        document.getElementById('page-title').textContent = `More in ${genre}`;
+
+        const state = { items: [], startIndex: 0, loading: false };
+
+        async function fetchMore() {
+            if (state.loading) return;
+            state.loading = true;
+            try {
+                const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent('subject:' + genre)}&printType=books&startIndex=${state.startIndex}&maxResults=20&key=${GOOGLE_BOOKS_API_KEY}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                const items = Array.isArray(data.items) ? data.items : [];
+                state.items = state.items.concat(items);
+                state.startIndex += items.length;
+                render(items);
+            } catch (e) {
+                console.error(e);
+            } finally {
+                state.loading = false;
+            }
+        }
+
+        function render(items) {
+            const list = document.getElementById('genre-results');
+            items.forEach(item => {
+                const info = item.volumeInfo || {};
+                const cover = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || 'https://via.placeholder.com/120x180?text=Book';
+                const title = info.title || 'Untitled';
+                const author = Array.isArray(info.authors) ? info.authors.join(', ') : (info.authors || 'Unknown Author');
+                const card = document.createElement('div');
+                card.className = 'recommendation-card';
+                card.style.width = '180px';
+                card.innerHTML = `
+                    <img src="${cover}" alt="${title}" class="rec-cover" style="width:120px;height:180px;">
+                    <h4>${title}</h4>
+                    <p>by ${author}</p>
+                `;
+                card.addEventListener('click', () => {
+                    // Navigate back to home and show details via URL hash with title
+                    const hash = `#title=${encodeURIComponent(title)}`;
+                    window.location.href = `index.html${hash}`;
+                });
+                list.appendChild(card);
+            });
+        }
+
+        function goHome() { window.location.href = 'index.html'; }
+
+        document.getElementById('load-more').addEventListener('click', fetchMore);
+        fetchMore();
+    </script>
+</body>
+</html>
+
+
