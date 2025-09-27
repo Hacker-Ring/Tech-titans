@@ -1,0 +1,194 @@
+/* General Body & Container Styling */
+body {
+    font-family: 'Montserrat', sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: grey; /* Fallback */
+    background-image: url('https://images.pexels.com/photos/4318442/pexels-photo-4318442.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=750&w=1260');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    color: #333;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* Utility: Open Sans bold italic style */
+.open-sans-italic-bold {
+    font-family: 'Open Sans', sans-serif;
+    font-weight: 700;
+    font-style: italic;
+}
+
+.container {
+    max-width: 950px;
+    margin: 30px auto;
+    background-color: rgba(255, 255, 255, 0.95);
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    text-align: center;
+    backdrop-filter: blur(5px);
+}
+
+/* Header & Logo */
+header {
+    padding-bottom: 25px;
+    border-bottom: 2px solid #e0e0e0;
+    margin-bottom: 30px;
+}
+
+.logo {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.8em;
+    font-weight: 700;
+    color: #333;
+    letter-spacing: -1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 5px;
+}
+
+.logo .icon {
+    font-size: 1.2em;
+    margin-right: 10px;
+    color: #6a11cb;
+}
+
+.tagline {
+    font-size: 1.1em;
+    color: #666;
+    margin-top: 5px;
+}
+
+/* Card Style for Sections */
+.card {
+    background-color: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    padding: 30px;
+    margin-bottom: 25px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* Search Section & Dialogue Options */
+#search-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+}
+
+
+
+.dialogue-options {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    width: 100%;
+    max-width: 450px;
+}
+
+.dialogue-button {
+    background-color: #f0f0f5;
+    color: #444;
+    padding: 18px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 1.1em;
+    font-weight: 600;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+    text-align: left;
+}
+
+.dialogue-button:hover {
+    background-color: #e0e0e5;
+    transform: scale(1.02);
+}
+
+.dialogue-button:active {
+    background-color: #d0d0d5;
+}
+
+/* Form sections that are hidden/shown */
+#scanner-form-section,
+#manual-search-section,
+#recommender-section {
+    display: none; /* Initially hidden */
+    flex-direction: column;
+    align-items: center;
+}
+
+.sub-heading {
+    color: #555;
+    font-size: 1.1em;
+    margin-bottom: 20px;
+}
+
+.input-group {
+    position: relative;
+    width: 80%;
+    max-width: 400px;
+    margin-bottom: 15px;
+}
+
+#book-image {
+    display: none;
+}
+
+.custom-file-upload {
+    background-color: #28a745;
+    color: white;
+    padding: 15px 25px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1.1em;
+    font-weight: 600;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.custom-file-upload:hover {
+    background-color: #218838;
+    transform: translateY(-2px);
+}
+
+.text-input {
+    padding: 15px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    width: 80%;
+    max-width: 400px;
+    font-size: 1em;
+    margin-bottom: 20px;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.text-input:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+    outline: none;
+}
+
+.primary-button {
+    background-color: #007bff;
+    color: white;
+    padding: 15px 30px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1.1em;
+    font-weight: 600;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
