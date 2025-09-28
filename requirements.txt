@@ -1,0 +1,19 @@
+# Core Flask dependencies
+Flask==2.3.3
+Flask-CORS==4.0.0
+
+# HTTP requests
+requests==2.31.0
+
+# Environment variables
+python-dotenv==1.0.0
+
+# Additional utilities
+gunicorn==21.2.0
+
+# Optional: For enhanced functionality
+Pillow==10.0.1
+numpy==1.24.3
+
+# Hugging Face specific
+huggingface_hub==0.17.3
