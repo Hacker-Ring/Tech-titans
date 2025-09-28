@@ -39,9 +39,10 @@
                     <button id="recommender-option" class="dialogue-button">🤔 I need a new book idea.</button>
                     <button id="search-option" class="dialogue-button">🔍 I know the book's title.</button>
                 </div>
-                <div style="margin-top:2em;">
-                    <h3>OCR & Book Recommendation (Powered by Gradio)</h3>
-                    <iframe src="http://127.0.0.1:7860" width="100%" height="600" style="border:1px solid #ccc; border-radius:8px;"></iframe>
+                <div class="card" style="margin-top:2em; box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 32px 24px; border-radius: 16px; background: #f8f9fa;">
+                    <h3 style="font-family: 'Montserrat', sans-serif; font-size: 1.4em; color: #333; margin-bottom: 18px;">📷 OCR & Book Recommendation</h3>
+                    <p style="color: #555; margin-bottom: 18px; font-size: 1.05em;">Upload a book cover or page to recognize text and get instant book recommendations using AI.</p>
+                    <iframe src="http://127.0.0.1:7860" width="100%" height="500" style="border:1px solid #ccc; border-radius:12px; background:#fff; box-shadow: 0 2px 12px rgba(0,0,0,0.08);"></iframe>
                 </div>
                 </div>
                 <form id="book-search-form" style="margin-top:20px;">
@@ -72,11 +73,17 @@
             </section>
 
             <section id="manual-search-section" class="card" style="display: none;">
-                <h2>Great! What's the book called?</h2>
-                <p class="sub-heading">Enter the title or ISBN to find it.</p>
-                <input type="text" id="book-text-search" placeholder="Enter book title or ISBN..." class="text-input">
-                <button id="search-submit-button" class="primary-button">Search</button>
-                <button class="back-button" onclick="goBackToStart()">← Go Back</button>
+                                <div style="padding: 32px 24px; border-radius: 16px; background: #f8f9fa; box-shadow: 0 8px 24px rgba(0,0,0,0.10); text-align: center;">
+                                    <h2 style="font-family: 'Montserrat', sans-serif; font-size: 1.5em; color: #333; margin-bottom: 10px;">
+                                        <span style="font-size:1.3em; margin-right:8px;">🔍</span> Search by Book Title
+                                    </h2>
+                                    <p class="sub-heading" style="color: #555; margin-bottom: 18px; font-size: 1.05em;">Enter the title or ISBN to find your book instantly.</p>
+                                    <input type="text" id="book-text-search" placeholder="Enter book title or ISBN..." class="text-input" style="max-width: 350px; margin-bottom: 18px;">
+                                    <div style="display: flex; gap: 12px; justify-content: center; margin-bottom: 10px;">
+                                        <button id="search-submit-button" class="primary-button" style="padding: 12px 32px; font-size: 1.1em;">🔍 Search</button>
+                                        <button class="back-button" onclick="goBackToStart()" style="padding: 12px 32px; font-size: 1.1em;">← Go Back</button>
+                                    </div>
+                                </div>
             </section>
 
             <section id="recommender-section" class="card" style="display: none;">
