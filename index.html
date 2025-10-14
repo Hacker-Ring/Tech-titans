@@ -5,20 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ShelfScanner: Snap, Discover, Shop!</title>
     <link rel="stylesheet" href="style.css">
-    <script>
-        // Load Tesseract.js on demand if needed
-        function ensureTesseractLoaded() {
-            return new Promise((resolve, reject) => {
-                if (window.Tesseract) { resolve(); return; }
-                const script = document.createElement('script');
-                script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js';
-                script.async = true;
-                script.onload = () => resolve();
-                script.onerror = () => reject(new Error('Failed to load OCR library'));
-                document.head.appendChild(script);
-            });
-        }
-    </script>
+        <script type="module">
+            import { ensureTesseractLoaded } from './tesseractLoader.js';
+        </script>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Playfair+Display:wght@700&family=Open+Sans:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&display=swap" rel="stylesheet">
 </head>
 <body>
